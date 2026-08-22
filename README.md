@@ -82,7 +82,7 @@ every ~24h.
 ## Automated Telemost room rotation
 
 `olcrtc-rotator` (in `rotator/`) is a small headless-Chromium service that, every
-`ROTATE_INTERVAL_HOURS` (default 8h — three attempts inside each ~24h Telemost expiry window):
+`ROTATE_INTERVAL_HOURS` (default 12h — two attempts inside each ~24h Telemost expiry window):
 
 1. Reuses a persisted Yandex/Google browser session (`state.json`) to open telemost.yandex.ru.
 2. Clicks "Создать видеовстречу" to spin up a fresh instant meeting and reads the new room id from

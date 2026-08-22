@@ -29,7 +29,7 @@ const {
   GOOGLE_TOTP_SECRET,
   TELEGRAM_BOT_TOKEN,
   TELEGRAM_CHAT_ID,
-  ROTATE_INTERVAL_HOURS = '2',
+  ROTATE_INTERVAL_HOURS = '12',
 } = process.env;
 
 function validateConfig() {
