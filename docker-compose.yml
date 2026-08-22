@@ -51,7 +51,7 @@ services:
       GOOGLE_TOTP_SECRET: ${OLCRTC_ROTATOR_GOOGLE_TOTP_SECRET:-}
       TELEGRAM_BOT_TOKEN: ${OLCRTC_ROTATOR_TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_CHAT_ID: ${OLCRTC_ROTATOR_TELEGRAM_CHAT_ID:-}
-      ROTATE_INTERVAL_HOURS: "2"
+      ROTATE_INTERVAL_HOURS: "12"
     volumes:
       - /mnt/raid5/olcrtc/rotator:/data
     networks:

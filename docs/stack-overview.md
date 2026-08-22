@@ -78,7 +78,7 @@ tunneled to look like a Jitsi/Telemost/WbStream call.
 - Custom Node + Playwright service, `rotator/` directory, built locally (`olcrtc-rotator:local`, also
   `pull_policy: build`).
 - Purpose: Yandex Telemost instant-meeting links expire after ~24h, and the panel refuses to auto-generate
-  telemost/wbstream rooms. This service periodically (`ROTATE_INTERVAL_HOURS`, currently 2h) drives a Chromium
+  telemost/wbstream rooms. This service periodically (`ROTATE_INTERVAL_HOURS`, currently 12h) drives a Chromium
   session against `telemost.yandex.ru`, creates a fresh meeting, and PUTs the new `room_id` into the panel's
   client config over the admin API described above — swapping only `telemost`-carrier locations.
 - The browser runs **headed** (`headless: false`) inside the container under a virtual display (`Xvfb`, started
