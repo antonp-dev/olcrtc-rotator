@@ -74,6 +74,13 @@ manual file edits or container restarts needed. The panel renders each client's 
 from current state on every subscription fetch (`/sub/<client-id>/`), so a client picks up a new room
 id or key on its next scheduled poll, no re-pairing needed.
 
+The automated Telemost rotator appends the new room instead of immediately replacing the previous
+one. Generated locations use the existing `name` field as a timestamp marker:
+`rotated_at: <RFC3339 timestamp> | <original name>`. Previous rooms remain available until their
+timestamp is at least 24 hours old, allowing clients to transition while both `olcrtc` processes run.
+For legacy locations without that prefix, the rotator falls back to `runtime.started_at`; locations
+without a valid timestamp are retained conservatively.
+
 For Telemost specifically, the panel can't generate rooms itself (`wbstream`/`telemost` room
 generation isn't supported by olcrtc — you always have to create one on the provider's own site and
 paste the id in). That's what `olcrtc-rotator` automates below, so you don't have to do it by hand
@@ -87,8 +94,9 @@ every ~24h.
 1. Reuses a persisted Yandex/Google browser session (`state.json`) to open telemost.yandex.ru.
 2. Clicks "Создать видеовстречу" to spin up a fresh instant meeting and reads the new room id from
    the resulting URL.
-3. Calls the panel's admin API (`GET /api/state` + `PUT /api/clients/{id}`, HTTP Basic Auth) to swap
-   just the `room_id` on that client's `telemost` location(s), leaving keys/transport/proxy untouched.
+3. Calls the panel's admin API (`GET /api/state` + `PUT /api/clients/{id}`, HTTP Basic Auth) to append
+  a new timestamped location for that client's `telemost` location(s), leaving keys/transport/proxy
+  untouched. Locations at least 24 hours old are pruned during the same update.
 4. Re-saves the (self-refreshing) session back to `state.json`.
 
 If the persisted session is ever rejected, it makes a best-effort scripted Google login using
