@@ -140,6 +140,8 @@ keeps working until it naturally expires.
    OLCRTC_ROTATOR_TELEGRAM_BOT_TOKEN=<from @BotFather>
    OLCRTC_ROTATOR_TELEGRAM_CHAT_ID=<your chat id>
    ```
+  If you created a new bot, open its Telegram chat and send `/start` before deploying. Telegram will
+  not deliver messages to a chat that has not started the bot.
 4. `docker compose up -d --build olcrtc-rotator`
 
 ### If it stops rotating
