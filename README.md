@@ -38,8 +38,9 @@ five requirements:
   Traefik. Because the compose file declares it as external, Compose/Portainer will not create it.
 4. **Persistent host directories:** Create `/mnt/raid5/olcrtc/manager` and
   `/mnt/raid5/olcrtc/rotator` on the Docker host, with permissions that allow the containers to read
-  and write their mounted state. The rotator directory must contain `state.json` after the one-time
-  browser login setup if the fallback Google login is not being used.
+  and write their mounted state. Before the first start, the rotator directory must contain a valid
+  `state.json` created by the one-time browser login setup described below. The scripted Google login
+  fallback is untested and must not be relied on for initial setup.
 5. **Host capabilities and variables:** The Docker host must permit the manager's `privileged: true`
   networking operations (network namespaces, veth, iptables, and tc). Set `APP_DOMAIN`,
   `OLCRTC_ROTATOR_PANEL_USER`, and `OLCRTC_ROTATOR_PANEL_PASS` in Portainer; optional Google and
@@ -48,14 +49,17 @@ five requirements:
 
 ## First run
 
-1. `docker compose up -d --build`
-2. Open `https://olcrtc.example.com/admin` (reachable only from RFC1918/loopback ranges per the
+1. Complete the one-time rotator setup below and copy `first-login/state.json` to
+  `/mnt/raid5/olcrtc/rotator/state.json` on the Docker host. This file must exist in the mounted
+  location before starting `olcrtc-rotator`; otherwise the rotator cannot authenticate reliably.
+2. `docker compose up -d --build`
+3. Open `https://olcrtc.example.com/admin` (reachable only from RFC1918/loopback ranges per the
    Traefik `internal-only` middleware) — first run prompts you to set an admin password (no
    `panel.env` is pre-seeded, unlike the panel's own install.sh flow).
-3. In the panel: add a client → add a location → pick provider (`jitsi` / `telemost` / `wbstream`) →
+4. In the panel: add a client → add a location → pick provider (`jitsi` / `telemost` / `wbstream`) →
    for Telemost/WbStream paste a room id you created on the provider's own site first (Jitsi accepts
    any full room URL ad hoc). The panel generates the key and starts the `olcrtc` process for you.
-4. Export the client's subscription / QR from the panel and pair it into an Android client — see
+5. Export the client's subscription / QR from the panel and pair it into an Android client — see
    below.
 
 ## Updating
@@ -100,9 +104,9 @@ every ~24h.
 4. Re-saves the (self-refreshing) session back to `state.json`.
 
 If the persisted session is ever rejected, it makes a best-effort scripted Google login using
-`GOOGLE_EMAIL`/`GOOGLE_PASSWORD`/`GOOGLE_TOTP_SECRET` — treat this as a fallback, not the primary
-mechanism: Google's login form is heavily bot-detected and scripted credential submission can and
-will fail sometimes. Any failure (expired session, fallback login also failing, panel API error)
+`GOOGLE_EMAIL`/`GOOGLE_PASSWORD`/`GOOGLE_TOTP_SECRET`. This fallback has not been tested and should
+not be used for initial setup: Google's login form is heavily bot-detected and scripted credential
+submission can fail. Any failure (expired session, fallback login also failing, panel API error)
 sends a Telegram alert instead of silently giving up, and leaves the previous room untouched — a
 failed cycle degrades to "rotate it by hand in the panel" rather than an outage, since the old room
 keeps working until it naturally expires.
@@ -121,9 +125,10 @@ keeps working until it naturally expires.
    any 2FA by hand, then press Enter in the terminal once you're logged in. This writes
    `first-login/state.json`. The same steps can be run with `./run.sh` from the `first-login/`
    directory; it installs the Node modules and Chromium for you.
-2. **Upload `state.json`** to `/mnt/raid5/olcrtc/rotator/state.json` on the server (e.g. `scp
-   first-login/state.json <host>:/mnt/raid5/olcrtc/rotator/state.json`) before first starting the container —
-   otherwise the first cycle falls straight to the Google-login fallback.
+2. **Copy `state.json` to the mounted location before starting the container.** For example:
+  `scp first-login/state.json <host>:/mnt/raid5/olcrtc/rotator/state.json`. Verify that the file exists
+  on the Docker host at exactly `/mnt/raid5/olcrtc/rotator/state.json`; this persisted session is
+  required for the first run.
 3. **Create a `.env`** next to `docker-compose.yml`:
    ```
    OLCRTC_ROTATOR_PANEL_USER=<panel admin user you set on first run>
