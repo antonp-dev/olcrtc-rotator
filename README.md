@@ -23,6 +23,29 @@ Android app (see below) — no client YAML needed.
 - `rotator/` — standalone headless-browser service that keeps a Telemost room alive past its ~24h
   expiry by rotating it automatically. See "Automated Telemost room rotation" below.
 
+## Deployment prerequisites
+
+This stack is intended for a Linux Docker host managed by Portainer. Before deploying, confirm all
+five requirements:
+
+1. **Portainer:** Portainer CE has a Docker standalone endpoint for the target host, and the stack is
+  deployed as a Git-based stack from this repository. Configure Portainer to use the repository's
+  root `docker-compose.yml` and set the stack environment variables there.
+2. **Traefik HTTPS routing:** Traefik is running on the same Docker host with a `websecure` entrypoint,
+  TLS certificates, and DNS for `olcrtc.<your-base-domain>`. The compose labels route both services
+  through Traefik; this stack does not publish a host port.
+3. **External proxy network:** A Docker network named `proxy` already exists and is connected to
+  Traefik. Because the compose file declares it as external, Compose/Portainer will not create it.
+4. **Persistent host directories:** Create `/mnt/raid5/olcrtc/manager` and
+  `/mnt/raid5/olcrtc/rotator` on the Docker host, with permissions that allow the containers to read
+  and write their mounted state. The rotator directory must contain `state.json` after the one-time
+  browser login setup if the fallback Google login is not being used.
+5. **Host capabilities and variables:** The Docker host must permit the manager's `privileged: true`
+  networking operations (network namespaces, veth, iptables, and tc). Set `APP_DOMAIN`,
+  `OLCRTC_ROTATOR_PANEL_USER`, and `OLCRTC_ROTATOR_PANEL_PASS` in Portainer; optional Google and
+  Telegram variables are documented below. A cgroup-v2-only host may not enforce per-client speed
+  quotas.
+
 ## First run
 
 1. `docker compose up -d --build`

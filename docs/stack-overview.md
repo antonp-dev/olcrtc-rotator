@@ -30,6 +30,27 @@ tunneled to look like a Jitsi/Telemost/WbStream call.
     The old named volumes may still exist on the host and are safe to remove once the bind-mount paths are
     confirmed populated and working.
 
+    ## Deployment prerequisites
+
+    The stack assumes the following five host-level prerequisites:
+
+    1. **Portainer CE:** A Docker standalone endpoint exists for the target Linux host. Deploy this repository
+      as a Portainer Git-based stack using the root `docker-compose.yml`; define stack environment variables in
+      Portainer rather than relying on a repository-side `.env` file.
+    2. **Traefik `websecure`:** Traefik runs on the same host with a `websecure` entrypoint, working TLS
+      certificates, and DNS for `olcrtc.<base-domain>`. Neither service publishes a host port; the manager is
+      reached only through the Traefik labels in `docker-compose.yml`.
+    3. **External `proxy` network:** A Docker network named `proxy` already exists and includes Traefik.
+      It is declared `external: true`, so Portainer/Compose will fail instead of creating it when the network
+      is absent.
+    4. **Bind-mount directories:** The host has writable directories `/mnt/raid5/olcrtc/manager` and
+      `/mnt/raid5/olcrtc/rotator`. The first stores manager state and keys; the second stores the rotator's
+      Playwright session and diagnostics. Seed `rotator/state.json` during one-time setup when possible.
+    5. **Linux privileges and stack variables:** Docker permits `privileged: true` for the manager so it can
+      create network namespaces, veth devices, iptables rules, and traffic-control rules. Portainer must set
+      `APP_DOMAIN`, `OLCRTC_ROTATOR_PANEL_USER`, and `OLCRTC_ROTATOR_PANEL_PASS`; Google and Telegram values
+      are optional fallback/alerting settings. On cgroup v2-only hosts, per-client speed quotas may not apply.
+
 ## Services
 
 ### `olcrtc-manager`

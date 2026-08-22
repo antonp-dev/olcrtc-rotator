@@ -21,9 +21,11 @@ services:
     # (rooms, keys, rotation, traffic_gb quotas) still works.
     labels:
       - "traefik.enable=true"
+      - "traefik.http.middlewares.internal-only.ipallowlist.sourcerange=192.168.0.0/16,172.16.0.0/12,10.0.0.0/10,127.0.0.1/8"
       - "traefik.http.routers.olcrtc-manager-admin.rule=Host(`olcrtc.${APP_DOMAIN:?set APP_DOMAIN in .env}`) && (Path(`/admin`) || PathPrefix(`/admin/`))"
       - "traefik.http.routers.olcrtc-manager-admin.priority=100"
       - "traefik.http.routers.olcrtc-manager-admin.entrypoints=websecure"
+      - "traefik.http.routers.olcrtc-manager-admin.middlewares=internal-only"
       - "traefik.http.routers.olcrtc-manager.rule=Host(`olcrtc.${APP_DOMAIN:?set APP_DOMAIN in .env}`)"
       - "traefik.http.routers.olcrtc-manager.entrypoints=websecure"
       - "traefik.http.services.olcrtc-manager.loadbalancer.server.port=8888"

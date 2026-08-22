@@ -4,7 +4,7 @@ FROM node:22-bookworm AS frontend
 ARG PANEL_REF=main
 RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
     && rm -rf /var/lib/apt/lists/*
-RUN npm install -g pnpm@9
+RUN npm install -g pnpm@9.15.9
 WORKDIR /src
 RUN git clone --depth 1 --branch "$PANEL_REF" https://github.com/BigDaddy3334/olcrtc-manager-panel.git . \
     || (git clone https://github.com/BigDaddy3334/olcrtc-manager-panel.git . && git checkout "$PANEL_REF")
