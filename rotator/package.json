@@ -1,0 +1,14 @@
+{
+  "name": "olcrtc-rotator",
+  "private": true,
+  "type": "module",
+  "version": "1.0.0",
+  "scripts": {
+    "start": "node rotate.js",
+    "seed-login": "node seed-login.js"
+  },
+  "dependencies": {
+    "otplib": "^12.0.1",
+    "playwright": "1.62.1"
+  }
+}

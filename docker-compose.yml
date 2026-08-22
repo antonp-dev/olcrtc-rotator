@@ -1,0 +1,60 @@
+services:
+  olcrtc-manager:
+    build:
+      context: .
+      args:
+        PANEL_REF: main      # pin to a tag/commit and bump to update deliberately
+        OLCRTC_REF: master   # same for the tunnel binary itself
+    image: olcrtc-manager:local
+    pull_policy: build
+    container_name: olcrtc-manager
+    restart: unless-stopped
+    # creates a network namespace + veth + iptables/tc rules per client location
+    # for isolation and speed limits - needs real net admin capability
+    privileged: true
+    environment:
+      OLCRTC_MANAGER_ADDR: 0.0.0.0
+    volumes:
+      - /mnt/raid5/olcrtc/manager:/etc/olcrtc-manager
+    # cgroup v1 net_cls,net_prio is used for per-client speed quotas; on a
+    # cgroup-v2-only host that specific feature may no-op, everything else
+    # (rooms, keys, rotation, traffic_gb quotas) still works.
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.olcrtc-manager-admin.rule=Host(`olcrtc.${APP_DOMAIN:?set APP_DOMAIN in .env}`) && (Path(`/admin`) || PathPrefix(`/admin/`))"
+      - "traefik.http.routers.olcrtc-manager-admin.priority=100"
+      - "traefik.http.routers.olcrtc-manager-admin.entrypoints=websecure"
+      - "traefik.http.routers.olcrtc-manager.rule=Host(`olcrtc.${APP_DOMAIN:?set APP_DOMAIN in .env}`)"
+      - "traefik.http.routers.olcrtc-manager.entrypoints=websecure"
+      - "traefik.http.services.olcrtc-manager.loadbalancer.server.port=8888"
+    networks:
+      - proxy
+
+  olcrtc-rotator:
+    build:
+      context: ./rotator
+    command: ["/app/entrypoint.sh"]
+    image: olcrtc-rotator:local
+    pull_policy: build
+    container_name: olcrtc-rotator
+    restart: unless-stopped
+    depends_on:
+      - olcrtc-manager
+    environment:
+      PANEL_URL: https://olcrtc.${APP_DOMAIN:?set APP_DOMAIN in .env}
+      PANEL_USER: ${OLCRTC_ROTATOR_PANEL_USER:?set the panel admin user in .env}
+      PANEL_PASS: ${OLCRTC_ROTATOR_PANEL_PASS:?set the panel admin pass in .env}
+      GOOGLE_EMAIL: ${OLCRTC_ROTATOR_GOOGLE_EMAIL:-}
+      GOOGLE_PASSWORD: ${OLCRTC_ROTATOR_GOOGLE_PASSWORD:-}
+      GOOGLE_TOTP_SECRET: ${OLCRTC_ROTATOR_GOOGLE_TOTP_SECRET:-}
+      TELEGRAM_BOT_TOKEN: ${OLCRTC_ROTATOR_TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${OLCRTC_ROTATOR_TELEGRAM_CHAT_ID:-}
+      ROTATE_INTERVAL_HOURS: "2"
+    volumes:
+      - /mnt/raid5/olcrtc/rotator:/data
+    networks:
+      - proxy
+
+networks:
+  proxy:
+    external: true
