@@ -32,6 +32,33 @@ const {
   ROTATE_INTERVAL_HOURS = '12',
 } = process.env;
 
+const ROOM_RETENTION_MS = 24 * 60 * 60 * 1000;
+const ROTATED_NAME_RE = /^rotated_at:\s*(\S+)(?:\s*\|\s*(.*))?$/;
+
+function locationAgeStartedAt(location) {
+  const nameMatch = String(location.name ?? '').match(ROTATED_NAME_RE);
+  const timestamp = nameMatch?.[1] ?? location.runtime?.started_at;
+  if (!timestamp) return null;
+
+  const startedAt = Date.parse(timestamp);
+  return Number.isNaN(startedAt) ? null : startedAt;
+}
+
+function originalLocationName(location) {
+  const nameMatch = String(location.name ?? '').match(ROTATED_NAME_RE);
+  return nameMatch?.[2]?.trim() || 'Telemost location';
+}
+
+function rotatedLocationName(location, now = new Date()) {
+  return `rotated_at: ${now.toISOString()} | ${originalLocationName(location)}`;
+}
+
+function shouldRetainLocation(location, now) {
+  const startedAt = locationAgeStartedAt(location);
+  if (startedAt === null) return true;
+  return now - startedAt < ROOM_RETENTION_MS;
+}
+
 function validateConfig() {
   for (const [name, value] of Object.entries({ PANEL_URL, PANEL_USER, PANEL_PASS })) {
     if (!value) throw new Error(`missing required env var ${name}`);
@@ -342,6 +369,7 @@ async function updateRoom(roomId) {
   log('updateRoom: fetching panel state for all clients');
   const state = await (await panelFetch('/api/state')).json();
   const clients = state.clients ?? [];
+  const now = Date.now();
   if (!clients.length) {
     log('updateRoom: panel state contains no clients, nothing to update');
     return;
@@ -351,11 +379,43 @@ async function updateRoom(roomId) {
   let failedCount = 0;
   for (const client of clients) {
     let touched = false;
-    const locations = (client.locations ?? []).map((loc) => {
-      if (loc.carrier !== 'telemost') return loc;
+    let freshRoomPresent = false;
+    const locations = [];
+    for (const loc of client.locations ?? []) {
+      if (loc.carrier !== 'telemost') {
+        locations.push(loc);
+        continue;
+      }
+
       touched = true;
-      return { ...loc, room_id: roomId };
-    });
+      if (loc.room_id === roomId) {
+        freshRoomPresent = true;
+        locations.push(loc);
+        continue;
+      }
+
+      if (shouldRetainLocation(loc, now)) {
+        locations.push(loc);
+        if (locationAgeStartedAt(loc) === null) {
+          log(
+            `updateRoom: client=${client.client_id} retaining telemost room=${loc.room_id} ` +
+              'because it has no valid rotated_at or runtime.started_at timestamp',
+          );
+        }
+      } else {
+        log(`updateRoom: client=${client.client_id} pruning telemost room=${loc.room_id} after 24h`);
+      }
+    }
+
+    if (touched && !freshRoomPresent) {
+      const sourceLocation = (client.locations ?? []).find((loc) => loc.carrier === 'telemost');
+      const { runtime: _runtime, uri: _uri, ...newLocation } = sourceLocation;
+      locations.push({
+        ...newLocation,
+        room_id: roomId,
+        name: rotatedLocationName(sourceLocation, new Date(now)),
+      });
+    }
 
     if (!touched) {
       log(`updateRoom: client=${client.client_id} has no telemost locations, skipping`);

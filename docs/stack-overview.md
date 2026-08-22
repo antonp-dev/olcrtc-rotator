@@ -70,8 +70,9 @@ tunneled to look like a Jitsi/Telemost/WbStream call.
   - Room generation is only auto-supported for `jitsi` (random UUID sub-room); `telemost`/`wbstream` explicitly
     require a manually-created room id to be pasted in — this is exactly why `olcrtc-rotator` exists.
 - Subscriptions (`/sub/<client-id>/`) render `olcrtc://` URIs live from current state on every fetch — no
-  caching — so editing a location's `room_id` propagates to the client on its next scheduled poll, no
-  re-pairing needed.
+  caching — so a rotated location propagates to the client on its next scheduled poll, no re-pairing
+  needed. During automated rotation, the subscription can temporarily contain both the current and
+  previous Telemost locations.
 
 ### `olcrtc-rotator`
 
@@ -79,8 +80,13 @@ tunneled to look like a Jitsi/Telemost/WbStream call.
   `pull_policy: build`).
 - Purpose: Yandex Telemost instant-meeting links expire after ~24h, and the panel refuses to auto-generate
   telemost/wbstream rooms. This service periodically (`ROTATE_INTERVAL_HOURS`, currently 12h) drives a Chromium
-  session against `telemost.yandex.ru`, creates a fresh meeting, and PUTs the new `room_id` into the panel's
-  client config over the admin API described above — swapping only `telemost`-carrier locations.
+  session against `telemost.yandex.ru`, creates a fresh meeting, and PUTs a new location into the panel's
+  client config over the admin API described above. The old Telemost location stays available until it is
+  at least 24 hours old, so both `olcrtc` processes overlap during the handoff.
+- Timestamping: generated locations use the existing `name` field in the form `rotated_at: <RFC3339 timestamp>
+  | <original name>`. For older names without this prefix, the rotator uses the manager-provided
+  `runtime.started_at`. Missing or invalid timestamps are retained rather than deleted; a manager restart
+  can reset `started_at`, which may delay cleanup but cannot cause premature deletion.
 - The browser runs **headed** (`headless: false`) inside the container under a virtual display (`Xvfb`, started
   by `rotator/entrypoint.sh` on `DISPLAY=:99` before `rotate.js` starts) rather than Chromium's native headless
   mode. This is part of an ongoing effort to avoid the app silently no-op'ing the create-call click for
