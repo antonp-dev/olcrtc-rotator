@@ -9,6 +9,7 @@ import crypto from 'node:crypto';
 import { getConfig, updateConfig, EDITABLE_KEYS, SECRET_KEYS } from './config.js';
 import { getLogs } from './logs.js';
 import { getStatus } from './status.js';
+import { isRotating } from './lock.js';
 
 const WEB_UI_PORT = Number(process.env.WEB_UI_PORT || '8080');
 
@@ -88,6 +89,7 @@ const PAGE_HTML = `<!doctype html>
   input { width: 100%; box-sizing: border-box; padding: 0.4rem; background: #1a1d24; border: 1px solid #333; color: #e6e6e6; border-radius: 4px; }
   button { margin-top: 1rem; padding: 0.5rem 1rem; background: #2f6fed; border: none; color: white; border-radius: 4px; cursor: pointer; font-size: 0.9rem; }
   button:hover { background: #3f7cf5; }
+  button:disabled { background: #444; cursor: default; }
   pre#logs { background: #05060a; padding: 1rem; height: 400px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; font-size: 0.8rem; border-radius: 6px; }
   #status { margin-bottom: 1rem; font-size: 0.9rem; color: #aaa; }
   .hint { font-size: 0.75rem; color: #888; margin-top: 0.75rem; }
@@ -97,6 +99,7 @@ const PAGE_HTML = `<!doctype html>
 <h1>olcrtc-rotator</h1>
 <p><a id="admin-link" href="#" target="_blank" rel="noopener">Open olcrtc admin panel &rarr;</a></p>
 <div id="status">loading status&hellip;</div>
+<button id="rotate-now-btn" type="button">Rotate now</button>
 
 <fieldset>
   <legend>Configuration</legend>
@@ -159,6 +162,13 @@ document.getElementById('config-form').addEventListener('submit', function (even
 function loadStatus() {
   fetch('/api/status').then(function (res) { return res.json(); }).then(function (status) {
     var el = document.getElementById('status');
+    var btn = document.getElementById('rotate-now-btn');
+    btn.disabled = !!status.rotating;
+    btn.textContent = status.rotating ? 'Rotating…' : 'Rotate now';
+    if (status.rotating) {
+      el.textContent = 'Rotation in progress…';
+      return;
+    }
     if (!status.lastRunAt) {
       el.textContent = 'No rotation has run yet.';
       return;
@@ -169,6 +179,19 @@ function loadStatus() {
     el.textContent = text;
   });
 }
+
+document.getElementById('rotate-now-btn').addEventListener('click', function () {
+  var btn = document.getElementById('rotate-now-btn');
+  btn.disabled = true;
+  btn.textContent = 'Rotating…';
+  fetch('/api/rotate', { method: 'POST' }).then(function (res) {
+    if (res.status === 409) {
+      document.getElementById('status').textContent = 'A rotation is already in progress.';
+    }
+    loadStatus();
+    loadLogs();
+  });
+});
 
 function loadLogs() {
   fetch('/api/logs').then(function (res) { return res.json(); }).then(function (data) {
@@ -189,7 +212,7 @@ setInterval(loadLogs, 5000);
 </html>
 `;
 
-export function startServer() {
+export function startServer(triggerRotation) {
   const server = http.createServer(async (req, res) => {
     if (!isAuthorized(req)) return requireAuth(res);
 
@@ -215,7 +238,16 @@ export function startServer() {
     }
 
     if (req.method === 'GET' && url.pathname === '/api/status') {
-      return sendJson(res, 200, getStatus());
+      return sendJson(res, 200, { ...getStatus(), rotating: isRotating() });
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/rotate') {
+      if (isRotating()) return sendJson(res, 409, { started: false, reason: 'a rotation is already in progress' });
+      // Fire-and-forget: rotateOnce() takes ~30-60s (real browser + Telemost
+      // flow), and already reports its own outcome via setStatus()/logs -
+      // no reason to hold the HTTP response open for it.
+      triggerRotation().catch(() => {});
+      return sendJson(res, 202, { started: true });
     }
 
     res.writeHead(404, { 'content-type': 'text/plain' });

@@ -9,7 +9,7 @@ WORKDIR /app
 COPY package.json .
 RUN npm install --omit=dev
 
-COPY rotate.js config.js logs.js status.js server.js .
+COPY rotate.js config.js logs.js status.js server.js lock.js .
 COPY entrypoint.sh .
 RUN chmod +x /app/entrypoint.sh
 
