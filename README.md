@@ -81,9 +81,9 @@ id or key on its next scheduled poll, no re-pairing needed.
 The automated Telemost rotator appends the new room instead of immediately replacing the previous
 one. Generated locations use the existing `name` field as a timestamp marker:
 `rotated_at: <RFC3339 timestamp> | <original name>`. Previous rooms remain available until their
-timestamp is at least 24 hours old, allowing clients to transition while both `olcrtc` processes run.
-For legacy locations without that prefix, the rotator falls back to `runtime.started_at`; locations
-without a valid timestamp are retained conservatively.
+timestamp is at least `ROOM_RETENTION_HOURS` old (default 24h), allowing clients to transition while
+both `olcrtc` processes run. For legacy locations without that prefix, the rotator falls back to
+`runtime.started_at`; locations without a valid timestamp are retained conservatively.
 
 For Telemost specifically, the panel can't generate rooms itself (`wbstream`/`telemost` room
 generation isn't supported by olcrtc — you always have to create one on the provider's own site and
@@ -98,9 +98,13 @@ every ~24h.
 1. Reuses a persisted Yandex/Google browser session (`state.json`) to open telemost.yandex.ru.
 2. Clicks "Создать видеовстречу" to spin up a fresh instant meeting and reads the new room id from
    the resulting URL.
-3. Calls the panel's admin API (`GET /api/state` + `PUT /api/clients/{id}`, HTTP Basic Auth) to append
-  a new timestamped location for that client's `telemost` location(s), leaving keys/transport/proxy
-  untouched. Locations at least 24 hours old are pruned during the same update.
+3. Applies that room to **every** client the panel knows about (`GET /api/state`), not a hand-picked
+   list — any client with at least one `telemost` location gets it automatically. For each one, calls
+   the panel's admin API (`GET /api/state` + `PUT /api/clients/{id}`, HTTP Basic Auth) to append a new
+   timestamped `telemost` location, leaving keys/transport/proxy untouched, and **prunes** any
+   existing `telemost` location older than `ROOM_RETENTION_HOURS` as part of the same update — cleanup
+   runs every cycle, not as a separate job. With the defaults (12h rotation, 24h retention) a client
+   normally carries the current room plus the previous one as a fallback, never more.
 4. Re-saves the (self-refreshing) session back to `state.json`.
 
 If the persisted session is ever rejected, it makes a best-effort scripted Google login using
@@ -110,6 +114,48 @@ submission can fail. Any failure (expired session, fallback login also failing, 
 sends a Telegram alert instead of silently giving up, and leaves the previous room untouched — a
 failed cycle degrades to "rotate it by hand in the panel" rather than an outage, since the old room
 keeps working until it naturally expires.
+
+### Configuration
+
+Every value below is an env var with a working default, except the panel credentials, which are
+required:
+
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `PANEL_URL` | *(required)* | Base URL of the olcrtc-manager panel, e.g. `https://olcrtc.example.com` |
+| `PANEL_USER` / `PANEL_PASS` | *(required)* | Panel admin credentials (HTTP Basic Auth) |
+| `OLCRTC_ADMIN_PATH` | `/admin` | Appended to `PANEL_URL` for the "open olcrtc admin panel" link in the rotator's own web UI |
+| `ROTATE_INTERVAL_HOURS` | `12` | How often a fresh room is minted and pushed to every client |
+| `ROOM_RETENTION_HOURS` | `24` | How long a client keeps a `telemost` location after it stops being the newest, before the rotator prunes it |
+| `GOOGLE_EMAIL` / `GOOGLE_PASSWORD` / `GOOGLE_TOTP_SECRET` | *(unset)* | Fallback-only scripted Google login, used if the persisted session is rejected |
+| `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` | *(unset)* | Failure alerts; skipped (logged only) if unset |
+| `WEB_UI_PORT` | `8080` | Port the rotator's own web UI listens on |
+| `WEB_UI_USER` / `WEB_UI_PASS` | falls back to `PANEL_USER`/`PANEL_PASS` | Login for the rotator's own web UI |
+| `STATE_PATH` | `/data/state.json` | Persisted Yandex/Google browser session |
+| `DEBUG_SCREENSHOT_PATH` | `/data/last-failure.png` | Diagnostic screenshots |
+| `CONFIG_PATH` | `/data/rotator-config.json` | Where the web UI persists its own overrides (see below) |
+
+Every field above except `STATE_PATH`/`DEBUG_SCREENSHOT_PATH`/`CONFIG_PATH` can also be changed live
+from the rotator's own web UI without touching `docker-compose.yml` or restarting the container — a
+UI edit is written to `CONFIG_PATH` and takes effect starting the next rotation cycle. The bundled
+`docker-compose.yml` already wires the `OLCRTC_ROTATOR_*` values from `.env` into these env vars.
+
+### Web UI
+
+The rotator serves a small admin page on `WEB_UI_PORT` (`https://olcrtc-rotator.<APP_DOMAIN>/` with
+the bundled `docker-compose.yml`, behind the same `internal-only` Traefik allowlist as the olcrtc
+admin panel) with:
+
+- A link straight to the olcrtc admin panel (`PANEL_URL` + `OLCRTC_ADMIN_PATH`).
+- The config table above, editable and saved without a restart. Secret fields (panel/Google/Telegram
+  credentials) are never echoed back in plaintext, only whether a value is currently set — leaving one
+  blank on save keeps the existing value.
+- A live status line (last rotation time, success/failure, room id) and a scrolling log view, backed
+  by the same log lines the container prints to stdout.
+
+It's gated by HTTP Basic Auth (`WEB_UI_USER`/`WEB_UI_PASS`, defaulting to the panel admin
+credentials) — treat it as sensitive as the panel itself, since it can read/change panel credentials
+and Telegram/Google secrets.
 
 ### One-time setup
 
@@ -139,6 +185,10 @@ keeps working until it naturally expires.
    OLCRTC_ROTATOR_GOOGLE_TOTP_SECRET=<base32 TOTP secret, if 2FA is on; omit otherwise>
    OLCRTC_ROTATOR_TELEGRAM_BOT_TOKEN=<from @BotFather>
    OLCRTC_ROTATOR_TELEGRAM_CHAT_ID=<your chat id>
+   # optional: separate login for the rotator's own web UI; leave both unset
+   # to reuse OLCRTC_ROTATOR_PANEL_USER/PASS above
+   OLCRTC_ROTATOR_WEB_UI_USER=
+   OLCRTC_ROTATOR_WEB_UI_PASS=
    ```
 4. `docker compose up -d --build olcrtc-rotator`
 
@@ -179,3 +229,7 @@ from its GitHub releases.
 - Room id + key together are the shared secret. Don't paste real room ids/keys into issues, commits,
   or a public remote. Same goes for `rotator/state.json` and the rotator's `.env` — both are
   effectively credentials (a live Yandex/Google session and, optionally, the account password).
+- The rotator's own web UI (`WEB_UI_PORT`, default `8080`) is as sensitive as the olcrtc admin panel —
+  it can read whether panel/Google/Telegram credentials are set and change them. It's gated by HTTP
+  Basic Auth and, in the bundled `docker-compose.yml`, the same `internal-only` Traefik allowlist as
+  the admin panel; don't publish its port or route it without that allowlist.
