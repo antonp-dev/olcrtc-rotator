@@ -90,16 +90,17 @@ const PAGE_HTML = `<!doctype html>
   button { margin-top: 1rem; padding: 0.5rem 1rem; background: #2f6fed; border: none; color: white; border-radius: 4px; cursor: pointer; font-size: 0.9rem; }
   button:hover { background: #3f7cf5; }
   button:disabled { background: #444; cursor: default; }
+  #rotate-now-btn { position: fixed; top: 1.5rem; right: 1.5rem; margin-top: 0; z-index: 10; }
   pre#logs { background: #05060a; padding: 1rem; height: 400px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; font-size: 0.8rem; border-radius: 6px; }
   #status { margin-bottom: 1rem; font-size: 0.9rem; color: #aaa; }
   .hint { font-size: 0.75rem; color: #888; margin-top: 0.75rem; }
 </style>
 </head>
 <body>
+<button id="rotate-now-btn" type="button">Rotate now</button>
 <h1>olcrtc-rotator</h1>
 <p><a id="admin-link" href="#" target="_blank" rel="noopener">Open olcrtc admin panel &rarr;</a></p>
 <div id="status">loading status&hellip;</div>
-<button id="rotate-now-btn" type="button">Rotate now</button>
 
 <fieldset>
   <legend>Configuration</legend>
