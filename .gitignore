@@ -34,3 +34,4 @@ go.work.sum
 rotator/node_modules/
 node_modules/
 state.json
+first-login/package-lock.json
