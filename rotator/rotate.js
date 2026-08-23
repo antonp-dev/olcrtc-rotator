@@ -21,11 +21,19 @@ import { getConfig } from './config.js';
 import { pushLog } from './logs.js';
 import { setStatus } from './status.js';
 import { startServer } from './server.js';
+import { tryRotate } from './lock.js';
 
 const {
   STATE_PATH = '/data/state.json',
   DEBUG_SCREENSHOT_PATH = '/data/last-failure.png',
+  STACK_ENV = '',
 } = process.env;
+
+// STACK_ENV is a leading-hyphen suffix ("-dev") used compose-side to
+// namespace container names/volumes/routers; here we only want the bare
+// label for tagging alerts, e.g. "-dev" -> "dev".
+const ENV_LABEL = STACK_ENV.replace(/^-/, '');
+const ENV_TAG = ENV_LABEL ? `[${ENV_LABEL}] ` : '';
 
 const ROTATED_NAME_RE = /^rotated_at:\s*(\S+)(?:\s*\|\s*(.*))?$/;
 
@@ -117,7 +125,10 @@ function dumpConsoleLogs(screenshotPath, logs) {
 }
 
 async function notify(message) {
-  logError(message);
+  // Tagged so a Telegram chat/log shared between main and dev (or any other
+  // STACK_ENV) still tells you which environment is actually failing.
+  const taggedMessage = ENV_TAG + message;
+  logError(taggedMessage);
   const config = getConfig();
   if (!config.TELEGRAM_BOT_TOKEN || !config.TELEGRAM_CHAT_ID) {
     logError('telegram notify skipped: TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID is missing');
@@ -127,7 +138,7 @@ async function notify(message) {
     const response = await fetch(`https://api.telegram.org/bot${config.TELEGRAM_BOT_TOKEN}/sendMessage`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ chat_id: config.TELEGRAM_CHAT_ID, text: message }),
+      body: JSON.stringify({ chat_id: config.TELEGRAM_CHAT_ID, text: taggedMessage }),
     });
     const body = await response.text();
     if (!response.ok) throw new Error(`HTTP ${response.status}: ${body}`);
@@ -537,7 +548,8 @@ async function main() {
   for (;;) {
     try {
       validateConfig();
-      await rotateOnce();
+      const ran = await tryRotate(rotateOnce);
+      if (!ran) log('main: skipped scheduled cycle - a manually triggered rotation was already running');
     } catch (err) {
       logError(err.message ?? String(err));
       await notify(`olcrtc-rotator: cycle FAILED before its normal error handler: ${err.message}`);
@@ -550,5 +562,11 @@ async function main() {
   }
 }
 
-startServer();
+// Passed into the web UI so its "rotate now" button can kick off a cycle
+// on-demand; tryRotate() ensures it can never overlap the scheduled loop.
+function triggerRotation() {
+  return tryRotate(rotateOnce);
+}
+
+startServer(triggerRotation);
 main();
