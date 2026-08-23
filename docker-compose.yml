@@ -46,14 +46,28 @@ services:
       PANEL_URL: https://olcrtc.${APP_DOMAIN:?set APP_DOMAIN in .env}
       PANEL_USER: ${OLCRTC_ROTATOR_PANEL_USER:?set the panel admin user in .env}
       PANEL_PASS: ${OLCRTC_ROTATOR_PANEL_PASS:?set the panel admin pass in .env}
+      OLCRTC_ADMIN_PATH: /admin
+      ROTATE_INTERVAL_HOURS: "12"
+      ROOM_RETENTION_HOURS: "24"
       GOOGLE_EMAIL: ${OLCRTC_ROTATOR_GOOGLE_EMAIL:-}
       GOOGLE_PASSWORD: ${OLCRTC_ROTATOR_GOOGLE_PASSWORD:-}
       GOOGLE_TOTP_SECRET: ${OLCRTC_ROTATOR_GOOGLE_TOTP_SECRET:-}
       TELEGRAM_BOT_TOKEN: ${OLCRTC_ROTATOR_TELEGRAM_BOT_TOKEN:-}
       TELEGRAM_CHAT_ID: ${OLCRTC_ROTATOR_TELEGRAM_CHAT_ID:-}
-      ROTATE_INTERVAL_HOURS: "12"
+      WEB_UI_PORT: "8080"
+      # Defaults to the panel admin user/pass above if left unset - only
+      # override these if the rotator's own web UI should have separate
+      # credentials from the olcrtc admin panel.
+      WEB_UI_USER: ${OLCRTC_ROTATOR_WEB_UI_USER:-}
+      WEB_UI_PASS: ${OLCRTC_ROTATOR_WEB_UI_PASS:-}
     volumes:
       - /mnt/raid5/olcrtc/rotator:/data
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.olcrtc-rotator.rule=Host(`olcrtc-rotator.${APP_DOMAIN:?set APP_DOMAIN in .env}`)"
+      - "traefik.http.routers.olcrtc-rotator.entrypoints=websecure"
+      - "traefik.http.routers.olcrtc-rotator.middlewares=internal-only"
+      - "traefik.http.services.olcrtc-rotator.loadbalancer.server.port=8080"
     networks:
       - proxy
 
