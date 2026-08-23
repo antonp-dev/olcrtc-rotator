@@ -17,23 +17,22 @@ import { chromium } from 'playwright';
 import { authenticator } from 'otplib';
 import fs from 'node:fs';
 import nodePath from 'node:path';
+import { getConfig } from './config.js';
+import { pushLog } from './logs.js';
+import { setStatus } from './status.js';
+import { startServer } from './server.js';
 
 const {
-  PANEL_URL,
-  PANEL_USER,
-  PANEL_PASS,
   STATE_PATH = '/data/state.json',
   DEBUG_SCREENSHOT_PATH = '/data/last-failure.png',
-  GOOGLE_EMAIL,
-  GOOGLE_PASSWORD,
-  GOOGLE_TOTP_SECRET,
-  TELEGRAM_BOT_TOKEN,
-  TELEGRAM_CHAT_ID,
-  ROTATE_INTERVAL_HOURS = '12',
 } = process.env;
 
-const ROOM_RETENTION_MS = 24 * 60 * 60 * 1000;
 const ROTATED_NAME_RE = /^rotated_at:\s*(\S+)(?:\s*\|\s*(.*))?$/;
+
+function roomRetentionMs() {
+  const hours = Number(getConfig().ROOM_RETENTION_HOURS);
+  return (Number.isFinite(hours) && hours > 0 ? hours : 24) * 60 * 60 * 1000;
+}
 
 function locationAgeStartedAt(location) {
   const nameMatch = String(location.name ?? '').match(ROTATED_NAME_RE);
@@ -56,17 +55,26 @@ function rotatedLocationName(location, now = new Date()) {
 function shouldRetainLocation(location, now) {
   const startedAt = locationAgeStartedAt(location);
   if (startedAt === null) return true;
-  return now - startedAt < ROOM_RETENTION_MS;
+  return now - startedAt < roomRetentionMs();
 }
 
 function validateConfig() {
-  for (const [name, value] of Object.entries({ PANEL_URL, PANEL_USER, PANEL_PASS })) {
-    if (!value) throw new Error(`missing required env var ${name}`);
+  const config = getConfig();
+  for (const name of ['PANEL_URL', 'PANEL_USER', 'PANEL_PASS']) {
+    if (!config[name]) throw new Error(`missing required config value ${name}`);
   }
 }
 
 function log(message) {
-  console.log(`[${new Date().toISOString()}] olcrtc-rotator: ${message}`);
+  const line = `[${new Date().toISOString()}] olcrtc-rotator: ${message}`;
+  console.log(line);
+  pushLog(line);
+}
+
+function logError(message) {
+  const line = `[${new Date().toISOString()}] olcrtc-rotator ERROR: ${message}`;
+  console.error(message);
+  pushLog(line);
 }
 
 // Diagnostic screenshots taken unconditionally on every cycle (not just on
@@ -109,23 +117,24 @@ function dumpConsoleLogs(screenshotPath, logs) {
 }
 
 async function notify(message) {
-  console.error(message);
-  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
-    console.error('telegram notify skipped: TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID is missing');
+  logError(message);
+  const config = getConfig();
+  if (!config.TELEGRAM_BOT_TOKEN || !config.TELEGRAM_CHAT_ID) {
+    logError('telegram notify skipped: TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID is missing');
     return false;
   }
   try {
-    const response = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+    const response = await fetch(`https://api.telegram.org/bot${config.TELEGRAM_BOT_TOKEN}/sendMessage`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text: message }),
+      body: JSON.stringify({ chat_id: config.TELEGRAM_CHAT_ID, text: message }),
     });
     const body = await response.text();
     if (!response.ok) throw new Error(`HTTP ${response.status}: ${body}`);
     log('telegram notification sent');
     return true;
   } catch (err) {
-    console.error('telegram notify failed:', err);
+    logError(`telegram notify failed: ${err.message}`);
     return false;
   }
 }
@@ -136,7 +145,8 @@ async function notify(message) {
 // get a Telegram alert asking you to re-seed state.json by hand, same as
 // any other failure.
 async function googleLoginFallback(page) {
-  if (!GOOGLE_EMAIL || !GOOGLE_PASSWORD) {
+  const config = getConfig();
+  if (!config.GOOGLE_EMAIL || !config.GOOGLE_PASSWORD) {
     throw new Error('stored session invalid and no GOOGLE_EMAIL/GOOGLE_PASSWORD fallback configured');
   }
 
@@ -148,20 +158,20 @@ async function googleLoginFallback(page) {
   await page.getByText(/google/i).first().click({ timeout: 15000 });
 
   log('googleLoginFallback: filling email');
-  await page.fill('input[type="email"]', GOOGLE_EMAIL);
+  await page.fill('input[type="email"]', config.GOOGLE_EMAIL);
   await page.click('#identifierNext');
   await page.waitForTimeout(1500);
 
   log('googleLoginFallback: filling password');
-  await page.fill('input[type="password"]', GOOGLE_PASSWORD);
+  await page.fill('input[type="password"]', config.GOOGLE_PASSWORD);
   await page.click('#passwordNext');
   await page.waitForTimeout(1500);
 
-  if (GOOGLE_TOTP_SECRET) {
+  if (config.GOOGLE_TOTP_SECRET) {
     const totpInput = page.locator('input[name="totpPin"]');
     if (await totpInput.isVisible({ timeout: 8000 }).catch(() => false)) {
       log('googleLoginFallback: TOTP prompt shown, filling code');
-      await totpInput.fill(authenticator.generate(GOOGLE_TOTP_SECRET));
+      await totpInput.fill(authenticator.generate(config.GOOGLE_TOTP_SECRET));
       await page.click('#totpNext');
     }
   }
@@ -237,7 +247,7 @@ async function extractRoomId(target) {
     .catch(() => '');
   const digits = meetingNumberText.replace(/\D/g, '');
   if (digits) {
-    console.error(
+    logError(
       `extractRoomId: falling back to on-page meeting number "${digits}" (from "${meetingNumberText}") - ` +
         `no /j/<id> URL or DOM match found, this id's format is unconfirmed against what the panel/client expect`,
     );
@@ -352,8 +362,9 @@ async function probeMedia(page) {
 }
 
 async function panelFetch(path, opts = {}) {
-  const auth = Buffer.from(`${PANEL_USER}:${PANEL_PASS}`).toString('base64');
-  const res = await fetch(`${PANEL_URL}${path}`, {
+  const config = getConfig();
+  const auth = Buffer.from(`${config.PANEL_USER}:${config.PANEL_PASS}`).toString('base64');
+  const res = await fetch(`${config.PANEL_URL}${path}`, {
     ...opts,
     headers: { ...(opts.headers ?? {}), authorization: `Basic ${auth}` },
   });
@@ -375,8 +386,10 @@ async function updateRoom(roomId) {
     return;
   }
 
+  const retentionHours = getConfig().ROOM_RETENTION_HOURS;
   let updatedCount = 0;
   let failedCount = 0;
+  let prunedCount = 0;
   for (const client of clients) {
     let touched = false;
     let freshRoomPresent = false;
@@ -403,7 +416,8 @@ async function updateRoom(roomId) {
           );
         }
       } else {
-        log(`updateRoom: client=${client.client_id} pruning telemost room=${loc.room_id} after 24h`);
+        prunedCount += 1;
+        log(`updateRoom: client=${client.client_id} pruning telemost room=${loc.room_id} (older than ${retentionHours}h retention)`);
       }
     }
 
@@ -441,7 +455,10 @@ async function updateRoom(roomId) {
   }
 
   if (!updatedCount) throw new Error('no clients have telemost locations to rotate');
-  log(`updateRoom: panel updated for ${updatedCount} client(s), failed for ${failedCount} client(s)`);
+  log(
+    `updateRoom: cleanup done - panel updated for ${updatedCount} client(s), failed for ${failedCount} client(s), ` +
+      `pruned ${prunedCount} expired location(s) (retention=${retentionHours}h)`,
+  );
 }
 
 async function rotateOnce() {
@@ -495,8 +512,10 @@ async function rotateOnce() {
     log(`rotateOnce: saved refreshed session to ${STATE_PATH}`);
 
     console.log(`rotated telemost room for all clients -> ${roomId}`);
+    setStatus({ lastRunAt: new Date().toISOString(), lastSuccess: true, lastRoomId: roomId, lastError: null });
   } catch (err) {
     log(`rotateOnce: FAILED - ${err.message}`);
+    setStatus({ lastRunAt: new Date().toISOString(), lastSuccess: false, lastError: err.message });
     await page.screenshot({ path: DEBUG_SCREENSHOT_PATH, fullPage: true }).catch(() => {});
     const failureLogPath = dumpConsoleLogs(DEBUG_SCREENSHOT_PATH, consoleLogs);
     log(`rotateOnce: dumped console log at ${failureLogPath}`);
@@ -513,21 +532,23 @@ async function rotateOnce() {
 }
 
 async function main() {
-  const intervalMs = Number(ROTATE_INTERVAL_HOURS) * 60 * 60 * 1000;
-  log(`main: starting, rotating every ${ROTATE_INTERVAL_HOURS}h`);
+  log('main: starting');
 
   for (;;) {
     try {
       validateConfig();
       await rotateOnce();
     } catch (err) {
-      console.error(err);
+      logError(err.message ?? String(err));
       await notify(`olcrtc-rotator: cycle FAILED before its normal error handler: ${err.message}`);
     }
 
-    log(`main: sleeping ${ROTATE_INTERVAL_HOURS}h until next cycle`);
+    const intervalHours = getConfig().ROTATE_INTERVAL_HOURS;
+    const intervalMs = Number(intervalHours) * 60 * 60 * 1000;
+    log(`main: sleeping ${intervalHours}h until next cycle`);
     await new Promise((resolve) => setTimeout(resolve, intervalMs));
   }
 }
 
+startServer();
 main();
