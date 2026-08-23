@@ -435,7 +435,7 @@ async function updateRoom(roomId) {
     if (touched && !freshRoomPresent) {
       const sourceLocation = (client.locations ?? []).find((loc) => loc.carrier === 'telemost');
       const { runtime: _runtime, uri: _uri, ...newLocation } = sourceLocation;
-      locations.push({
+      locations.unshift({
         ...newLocation,
         room_id: roomId,
         name: rotatedLocationName(sourceLocation, new Date(now)),

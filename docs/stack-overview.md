@@ -81,8 +81,9 @@ tunneled to look like a Jitsi/Telemost/WbStream call.
 - Purpose: Yandex Telemost instant-meeting links expire after ~24h, and the panel refuses to auto-generate
   telemost/wbstream rooms. This service periodically (`ROTATE_INTERVAL_HOURS`, currently 12h) drives a Chromium
   session against `telemost.yandex.ru`, creates a fresh meeting, and PUTs a new location into the panel's
-  client config over the admin API described above. The old Telemost location stays available until it is
-  at least 24 hours old, so both `olcrtc` processes overlap during the handoff.
+  client config over the admin API described above. The fresh location is first in `locations[]`; the old
+  Telemost location stays available until it is at least 24 hours old, so both `olcrtc` processes overlap
+  during the handoff.
 - Timestamping: generated locations use the existing `name` field in the form `rotated_at: <RFC3339 timestamp>
   | <original name>`. For older names without this prefix, the rotator uses the manager-provided
   `runtime.started_at`. Missing or invalid timestamps are retained rather than deleted; a manager restart

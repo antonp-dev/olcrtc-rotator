@@ -78,7 +78,7 @@ manual file edits or container restarts needed. The panel renders each client's 
 from current state on every subscription fetch (`/sub/<client-id>/`), so a client picks up a new room
 id or key on its next scheduled poll, no re-pairing needed.
 
-The automated Telemost rotator appends the new room instead of immediately replacing the previous
+The automated Telemost rotator prepends the new room instead of immediately replacing the previous
 one. Generated locations use the existing `name` field as a timestamp marker:
 `rotated_at: <RFC3339 timestamp> | <original name>`. Previous rooms remain available until their
 timestamp is at least `ROOM_RETENTION_HOURS` old (default 24h), allowing clients to transition while
@@ -100,7 +100,7 @@ every ~24h.
    the resulting URL.
 3. Applies that room to **every** client the panel knows about (`GET /api/state`), not a hand-picked
    list — any client with at least one `telemost` location gets it automatically. For each one, calls
-   the panel's admin API (`GET /api/state` + `PUT /api/clients/{id}`, HTTP Basic Auth) to append a new
+    the panel's admin API (`GET /api/state` + `PUT /api/clients/{id}`, HTTP Basic Auth) to prepend a new
    timestamped `telemost` location, leaving keys/transport/proxy untouched, and **prunes** any
    existing `telemost` location older than `ROOM_RETENTION_HOURS` as part of the same update — cleanup
    runs every cycle, not as a separate job. With the defaults (12h rotation, 24h retention) a client
