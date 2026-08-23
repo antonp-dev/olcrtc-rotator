@@ -1,3 +1,8 @@
+# STACK_ENV namespaces every collision-prone resource (container names, host
+# volume paths, image tags, Traefik router/service names and hostnames) so a
+# second environment (e.g. dev) can run alongside main on the same Docker
+# host without clobbering it. Leave unset for the primary/prod stack; set to
+# e.g. "-dev" (leading hyphen) for a second one.
 services:
   olcrtc-manager:
     build:
@@ -5,9 +10,9 @@ services:
       args:
         PANEL_REF: main      # pin to a tag/commit and bump to update deliberately
         OLCRTC_REF: master   # same for the tunnel binary itself
-    image: olcrtc-manager:local
+    image: olcrtc-manager:local${STACK_ENV:-}
     pull_policy: build
-    container_name: olcrtc-manager
+    container_name: olcrtc-manager${STACK_ENV:-}
     restart: unless-stopped
     # creates a network namespace + veth + iptables/tc rules per client location
     # for isolation and speed limits - needs real net admin capability
@@ -15,20 +20,20 @@ services:
     environment:
       OLCRTC_MANAGER_ADDR: 0.0.0.0
     volumes:
-      - /mnt/raid5/olcrtc/manager:/etc/olcrtc-manager
+      - /mnt/raid5/olcrtc/manager${STACK_ENV:-}:/etc/olcrtc-manager
     # cgroup v1 net_cls,net_prio is used for per-client speed quotas; on a
     # cgroup-v2-only host that specific feature may no-op, everything else
     # (rooms, keys, rotation, traffic_gb quotas) still works.
     labels:
       - "traefik.enable=true"
       - "traefik.http.middlewares.internal-only.ipallowlist.sourcerange=192.168.0.0/16,172.16.0.0/12,10.0.0.0/10,127.0.0.1/8"
-      - "traefik.http.routers.olcrtc-manager-admin.rule=Host(`olcrtc.${APP_DOMAIN:?set APP_DOMAIN in .env}`) && (Path(`/admin`) || PathPrefix(`/admin/`))"
-      - "traefik.http.routers.olcrtc-manager-admin.priority=100"
-      - "traefik.http.routers.olcrtc-manager-admin.entrypoints=websecure"
-      - "traefik.http.routers.olcrtc-manager-admin.middlewares=internal-only"
-      - "traefik.http.routers.olcrtc-manager.rule=Host(`olcrtc.${APP_DOMAIN:?set APP_DOMAIN in .env}`)"
-      - "traefik.http.routers.olcrtc-manager.entrypoints=websecure"
-      - "traefik.http.services.olcrtc-manager.loadbalancer.server.port=8888"
+      - "traefik.http.routers.olcrtc-manager-admin${STACK_ENV:-}.rule=Host(`olcrtc${STACK_ENV:-}.${APP_DOMAIN:?set APP_DOMAIN in .env}`) && (Path(`/admin`) || PathPrefix(`/admin/`))"
+      - "traefik.http.routers.olcrtc-manager-admin${STACK_ENV:-}.priority=100"
+      - "traefik.http.routers.olcrtc-manager-admin${STACK_ENV:-}.entrypoints=websecure"
+      - "traefik.http.routers.olcrtc-manager-admin${STACK_ENV:-}.middlewares=internal-only"
+      - "traefik.http.routers.olcrtc-manager${STACK_ENV:-}.rule=Host(`olcrtc${STACK_ENV:-}.${APP_DOMAIN:?set APP_DOMAIN in .env}`)"
+      - "traefik.http.routers.olcrtc-manager${STACK_ENV:-}.entrypoints=websecure"
+      - "traefik.http.services.olcrtc-manager${STACK_ENV:-}.loadbalancer.server.port=8888"
     networks:
       - proxy
 
@@ -36,14 +41,14 @@ services:
     build:
       context: ./rotator
     command: ["/app/entrypoint.sh"]
-    image: olcrtc-rotator:local
+    image: olcrtc-rotator:local${STACK_ENV:-}
     pull_policy: build
-    container_name: olcrtc-rotator
+    container_name: olcrtc-rotator${STACK_ENV:-}
     restart: unless-stopped
     depends_on:
       - olcrtc-manager
     environment:
-      PANEL_URL: https://olcrtc.${APP_DOMAIN:?set APP_DOMAIN in .env}
+      PANEL_URL: https://olcrtc${STACK_ENV:-}.${APP_DOMAIN:?set APP_DOMAIN in .env}
       PANEL_USER: ${OLCRTC_ROTATOR_PANEL_USER:?set the panel admin user in .env}
       PANEL_PASS: ${OLCRTC_ROTATOR_PANEL_PASS:?set the panel admin pass in .env}
       OLCRTC_ADMIN_PATH: /admin
@@ -61,13 +66,13 @@ services:
       WEB_UI_USER: ${OLCRTC_ROTATOR_WEB_UI_USER:-}
       WEB_UI_PASS: ${OLCRTC_ROTATOR_WEB_UI_PASS:-}
     volumes:
-      - /mnt/raid5/olcrtc/rotator:/data
+      - /mnt/raid5/olcrtc/rotator${STACK_ENV:-}:/data
     labels:
       - "traefik.enable=true"
-      - "traefik.http.routers.olcrtc-rotator.rule=Host(`olcrtc-rotator.${APP_DOMAIN:?set APP_DOMAIN in .env}`)"
-      - "traefik.http.routers.olcrtc-rotator.entrypoints=websecure"
-      - "traefik.http.routers.olcrtc-rotator.middlewares=internal-only"
-      - "traefik.http.services.olcrtc-rotator.loadbalancer.server.port=8080"
+      - "traefik.http.routers.olcrtc-rotator${STACK_ENV:-}.rule=Host(`olcrtc-rotator${STACK_ENV:-}.${APP_DOMAIN:?set APP_DOMAIN in .env}`)"
+      - "traefik.http.routers.olcrtc-rotator${STACK_ENV:-}.entrypoints=websecure"
+      - "traefik.http.routers.olcrtc-rotator${STACK_ENV:-}.middlewares=internal-only"
+      - "traefik.http.services.olcrtc-rotator${STACK_ENV:-}.loadbalancer.server.port=8080"
     networks:
       - proxy
 
