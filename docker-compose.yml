@@ -48,6 +48,10 @@ services:
     depends_on:
       - olcrtc-manager
     environment:
+      # Forwarded into the container so failure/alert messages can tag which
+      # environment they're from - everything else STACK_ENV touches below
+      # is compose-side interpolation only, not visible to the process.
+      STACK_ENV: ${STACK_ENV:-}
       PANEL_URL: https://olcrtc${STACK_ENV:-}.${APP_DOMAIN:?set APP_DOMAIN in .env}
       PANEL_USER: ${OLCRTC_ROTATOR_PANEL_USER:?set the panel admin user in .env}
       PANEL_PASS: ${OLCRTC_ROTATOR_PANEL_PASS:?set the panel admin pass in .env}
